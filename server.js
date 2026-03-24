@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
@@ -13,6 +14,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+mongoose.connect("mongodb://127.0.0.1:27017/minidrive")
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log(err));
+
 // Multer setup
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
@@ -22,6 +27,13 @@ cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.API_KEY,
   api_secret: process.env.API_SECRET
+});
+
+const File = mongoose.model("File", {
+  fileName: String,
+  url: String,
+  public_id: String,
+  userEmail: String
 });
 
 const verifyToken = (req, res, next) => {
@@ -64,6 +76,14 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       ).end(file.buffer);
     });
 
+    // 🔥 SAVE TO DATABASE
+    await File.create({
+      fileName: file.originalname,
+      url: result.secure_url,
+      public_id: result.public_id,
+      userEmail: req.user.email
+    });
+
     res.json({
       url: result.secure_url,
       public_id: result.public_id,
@@ -80,14 +100,26 @@ app.post("/delete-file", verifyToken, async (req, res) => {
   try {
     const { public_id, resource_type } = req.body;
 
-    const result = await cloudinary.uploader.destroy(public_id, {
+    await cloudinary.uploader.destroy(public_id, {
       resource_type: resource_type || "raw"
     });
 
-    res.json({ success: true, result });
+    // 🔥 DELETE FROM DATABASE
+    await File.deleteOne({ public_id });
+
+    res.json({ success: true });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/files", verifyToken, async (req, res) => {
+  try {
+    const files = await File.find({ userEmail: req.user.email });
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
