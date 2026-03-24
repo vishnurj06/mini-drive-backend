@@ -14,10 +14,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-mongoose.connect("mongodb://127.0.0.1:27017/minidrive")
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
   .catch(err => console.log(err));
-
+  
 // Multer setup
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
