@@ -79,6 +79,47 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+// --- RENAME FOLDER ---
+app.post("/rename-folder", verifyToken, async (req, res) => {
+  try {
+    const { folderId, newName } = req.body;
+    await Folder.findOneAndUpdate(
+        { _id: folderId, owner: req.user.email }, 
+        { name: newName }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- DELETE FOLDER (And its contents) ---
+app.post("/delete-folder", verifyToken, async (req, res) => {
+  try {
+    const { folderId } = req.body;
+    
+    // 1. Find all files inside this folder
+    const files = await File.find({ folderId, owner: req.user.email });
+    
+    // 2. Delete those files from Cloudinary
+    for(let file of files) {
+        const isRaw = !file.url.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
+        await cloudinary.uploader.destroy(file.public_id, { resource_type: isRaw ? "raw" : "image" });
+    }
+
+    // 3. Delete files from MongoDB
+    await File.deleteMany({ folderId, owner: req.user.email });
+    
+    // 4. Delete the folder itself (and any immediate sub-folders)
+    await Folder.deleteMany({ parentId: folderId, owner: req.user.email });
+    await Folder.deleteOne({ _id: folderId, owner: req.user.email });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- FOLDER SYSTEM ROUTES ---
 
 // 1. Create a new folder
