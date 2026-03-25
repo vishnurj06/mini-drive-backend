@@ -12,7 +12,12 @@ const cloudinary = require("cloudinary").v2;
 
 
 const app = express();
-app.use(cors());
+// Give the backend an all-access pass to talk to your Vercel frontend
+app.use(cors({
+    origin: "*", // The asterisk means "Allow any URL to connect"
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+}));
 app.use(express.json());
 
 mongoose.connect(process.env.MONGO_URI)
