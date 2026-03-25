@@ -335,21 +335,25 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
 // --- DELETE FILE ---
 app.post("/delete-file", verifyToken, async (req, res) => {
   try {
-      const { fileId } = req.body;
-      const file = await File.findById(fileId);
+      const { fileId } = req.body; // This now perfectly matches what the frontend is sending
       
+      const file = await File.findById(fileId);
       if (!file) {
-          return res.status(404).json({ error: "File not found" });
+          return res.status(404).json({ error: "File not found in database" });
       }
 
-      // 🔥 THE FIX: Allow deletion if you are the owner OR if you are an admin
+      // Master Key Check: Owner OR Admin
       if (file.owner !== req.user.email && req.user.role !== 'admin') {
           return res.status(403).json({ error: "Access Denied: You do not own this file." });
       }
 
-      // Delete from Cloudinary
-      if (file.cloudinaryId) {
-          await cloudinary.uploader.destroy(file.cloudinaryId);
+      // 🔥 THE FIX: Use public_id (from your MongoDB) and dynamically check resource type
+      if (file.public_id) {
+          let resourceType = "image";
+          if (file.url.includes("/raw/upload/")) resourceType = "raw";
+          if (file.url.includes("/video/upload/")) resourceType = "video";
+          
+          await cloudinary.uploader.destroy(file.public_id, { resource_type: resourceType });
       }
 
       // Delete from MongoDB
