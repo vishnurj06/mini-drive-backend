@@ -9,7 +9,9 @@ const cors = require("cors");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 
-const nodemailer = require("nodemailer");
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY); // Paste your Resend API key
+
 
 const app = express();
 app.use(cors());
@@ -19,14 +21,6 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
   .catch(err => console.log(err));
 
-// 🔥 Email Transporter Setup (Use your own Gmail and an 'App Password')
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'bookofheroes1@gmail.com',      // Replace with your email
-    pass: 'wcyjxrkwnespouqc'    // Replace with a Google App Password (not your real password)
-  }
-});
 
 // 🔥 NEW: User Model
 const User = mongoose.model("User", {
@@ -441,9 +435,10 @@ app.post("/forgot-password", async (req, res) => {
     await user.save();
 
     // Send Email
-    await transporter.sendMail({
-      from: 'bookofheroes1@gmail.com',
-      to: email,
+    // Send Email via Resend
+    await resend.emails.send({
+      from: 'onboarding@resend.dev', // Resend lets you use this free testing address!
+      to: email, // Your verified email address
       subject: 'Mini Drive Password Reset OTP',
       text: `Your password reset code is: ${otp}. It is valid for 10 minutes.`
     });

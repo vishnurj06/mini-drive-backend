@@ -15,7 +15,8 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.3.2",
     "multer": "^2.1.1",
-    "nodemailer": "^8.0.4"
+    "nodemailer": "^8.0.4",
+    "resend": "^6.9.4"
   },
   "keywords": [],
   "author": "",
