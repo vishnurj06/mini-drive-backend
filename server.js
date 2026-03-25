@@ -34,23 +34,33 @@ cloudinary.config({
   api_secret: process.env.API_SECRET
 });
 
+// 🔥 NEW: Folder Schema
+const Folder = mongoose.model("Folder", {
+  name: String,
+  owner: String,
+  parentId: { type: String, default: null }, // null means it's on the main screen (root)
+  createdAt: { type: Date, default: Date.now }
+});
+
+// 🔥 UPDATED: File Schema (added folderId)
 const File = mongoose.model("File", {
   fileName: String,
   url: String,
   public_id: String,
   owner: String,
+  folderId: { type: String, default: null }, // tells us which folder this file is in
   sharedWith: [
     {
       email: String,
       permission: String
     }
   ],
-  // 🔥 ADD THIS: To track who wants access
   accessRequests: [
     {
       email: String
     }
-  ]
+  ],
+  createdAt: { type: Date, default: Date.now }
 });
 
 const verifyToken = (req, res, next) => {
@@ -68,6 +78,39 @@ const verifyToken = (req, res, next) => {
     res.status(401).json({ error: "Invalid token" });
   }
 };
+
+// --- FOLDER SYSTEM ROUTES ---
+
+// 1. Create a new folder
+app.post("/create-folder", verifyToken, async (req, res) => {
+  try {
+    const { name, parentId } = req.body;
+    const folder = await Folder.create({
+      name,
+      owner: req.user.email,
+      parentId: parentId || null
+    });
+    res.json(folder);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Get contents of a specific folder (or root)
+app.get("/my-drive", verifyToken, async (req, res) => {
+  try {
+    // If no folderId is passed, assume we are at the root (null)
+    const currentFolderId = req.query.folderId || null;
+    
+    // Fetch folders and files that belong to this specific level
+    const folders = await Folder.find({ owner: req.user.email, parentId: currentFolderId });
+    const files = await File.find({ owner: req.user.email, folderId: currentFolderId });
+    
+    res.json({ folders, files });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // 1. Get a specific file via Shared Link
 app.get("/file/:id", verifyToken, async (req, res) => {
@@ -155,11 +198,16 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
     });
 
     // Save to Database
+    // Grab the folderId from the form data (if it exists)
+    const targetFolderId = req.body.folderId === "null" || !req.body.folderId ? null : req.body.folderId;
+
+    // Save to Database (UPDATED to include folderId)
     await File.create({
       fileName: file.originalname,
       url: result.secure_url,
       public_id: result.public_id,
-      owner: req.user.email
+      owner: req.user.email,
+      folderId: targetFolderId // 🔥 Save it inside the correct folder
     });
 
     res.json({
