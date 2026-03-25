@@ -9,8 +9,6 @@ const cors = require("cors");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 
-const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY); // Paste your Resend API key
 
 
 const app = express();
@@ -433,19 +431,30 @@ app.post("/forgot-password", async (req, res) => {
     user.otp = otp;
     user.otpExpires = Date.now() + 10 * 60 * 1000; // Expires in 10 mins
     await user.save();
-
-    // Send Email
-    // Send Email via Resend
-    await resend.emails.send({
-      from: 'onboarding@resend.dev', // Resend lets you use this free testing address!
-      to: email, // Your verified email address
-      subject: 'Mini Drive Password Reset OTP',
-      text: `Your password reset code is: ${otp}. It is valid for 10 minutes.`
+    
+    // Send Email via EmailJS API
+    const emailRes = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            service_id: process.env.EMAILJS_SERVICE_ID,
+            template_id: process.env.EMAILJS_TEMPLATE_ID,
+            user_id: process.env.EMAILJS_PUBLIC_KEY,
+            accessToken: process.env.EMAILJS_PRIVATE_KEY,
+            template_params: {
+                to_email: email,    // The email the user typed in
+                otp: otp            // The 6-digit code
+            }
+        })
     });
 
+    if (!emailRes.ok) {
+        const errorText = await emailRes.text();
+        throw new Error(`EmailJS Error: ${errorText}`);
+    }
     res.json({ success: true });
   } catch (err) { 
-    console.error("NODEMAILER ERROR:", err);
+    console.error("EMAILJS ERROR:", err);
     // This will send the exact Gmail error message directly to your screen!
     res.status(500).json({ error: `Mail Error: ${err.message}` }); 
   }
