@@ -1,3 +1,8 @@
+const User = mongoose.model("User", {
+  email: String,
+  password: String
+});
+
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -8,7 +13,6 @@ const cors = require("cors");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 
-const users = [];
 
 const app = express();
 app.use(cors());
@@ -142,8 +146,13 @@ app.post("/share-file", verifyToken, async (req, res) => {
   try {
     const { public_id, email, permission } = req.body;
     
+    const userExists = await User.findOne({ email });
+    if (!userExists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
     const file = await File.findOne({ public_id, owner: req.user.email });
-    if (!file) return res.status(404).json({ error: "File not found or unauthorized" });
+    if (!file) return res.status(403).json({ error: "File not found or unauthorized (Only owner can share)" });
     
     const alreadyShared = file.sharedWith.find(s => s.email === email);
     if (!alreadyShared) {
@@ -176,7 +185,15 @@ app.post("/signup", async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  users.push({ email, password: hashedPassword });
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    return res.status(400).json({ error: "User already exists" });
+  }
+
+  await User.create({
+    email,
+    password: hashedPassword
+  });
 
   res.json({ message: "User created successfully" });
 });
@@ -184,7 +201,7 @@ app.post("/signup", async (req, res) => {
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  const user = users.find(u => u.email === email);
+  const user = await User.findOne({ email });
   if (!user) return res.status(400).json({ error: "User not found" });
 
   const isMatch = await bcrypt.compare(password, user.password);
