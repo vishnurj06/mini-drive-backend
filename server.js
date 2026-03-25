@@ -33,7 +33,13 @@ const File = mongoose.model("File", {
   fileName: String,
   url: String,
   public_id: String,
-  userEmail: String
+  owner: String,
+  sharedWith: [
+    {
+      email: String,
+      permission: String
+    }
+  ]
 });
 
 const verifyToken = (req, res, next) => {
@@ -81,7 +87,7 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       fileName: file.originalname,
       url: result.secure_url,
       public_id: result.public_id,
-      userEmail: req.user.email
+      owner: req.user.email
     });
 
     res.json({
@@ -114,10 +120,41 @@ app.post("/delete-file", verifyToken, async (req, res) => {
   }
 });
 
-app.get("/files", verifyToken, async (req, res) => {
+app.get("/my-files", verifyToken, async (req, res) => {
   try {
-    const files = await File.find({ userEmail: req.user.email });
+    const files = await File.find({ owner: req.user.email });
     res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/shared-files", verifyToken, async (req, res) => {
+  try {
+    const files = await File.find({ "sharedWith.email": req.user.email });
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/share-file", verifyToken, async (req, res) => {
+  try {
+    const { public_id, email, permission } = req.body;
+    
+    const file = await File.findOne({ public_id, owner: req.user.email });
+    if (!file) return res.status(404).json({ error: "File not found or unauthorized" });
+    
+    const alreadyShared = file.sharedWith.find(s => s.email === email);
+    if (!alreadyShared) {
+        file.sharedWith.push({ email, permission });
+        await file.save();
+    } else {
+        alreadyShared.permission = permission;
+        await file.save();
+    }
+    
+    res.json({ success: true, message: "File shared successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
