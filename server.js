@@ -108,24 +108,24 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
 
 // 🔥 DELETE API (FIXED ROUTE NAME)
 app.post("/delete-file", verifyToken, async (req, res) => {
-  try {
-    const { public_id, resource_type } = req.body;
+    try {
+        const { public_id } = req.body;
+        const file = await File.findOne({ public_id, owner: req.user.email });
+        
+        if (!file) return res.status(404).json({ error: "File not found" });
 
-    await cloudinary.uploader.destroy(public_id, {
-      resource_type: resource_type || "raw"
-    });
+        // Determine type based on URL extension
+        const isRaw = file.url.toLowerCase().endsWith(".pdf");
 
-    // 🔥 DELETE FROM DATABASE
-    await File.deleteOne({
-      public_id,
-      owner: req.user.email
-    });
+        await cloudinary.uploader.destroy(public_id, {
+            resource_type: isRaw ? "raw" : "image" // Match the type used during upload
+        });
 
-    res.json({ success: true });
-
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+        await File.deleteOne({ _id: file._id });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.get("/my-files", verifyToken, async (req, res) => {
@@ -214,4 +214,12 @@ app.post("/login", async (req, res) => {
   const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
   res.json({ token });
+});
+
+app.get("/admin/all-files", verifyToken, async (req, res) => {
+    if (req.user.email !== "admin@gmail.com") {
+        return res.status(403).json({ error: "Access denied. Admins only." });
+    }
+    const allFiles = await File.find({});
+    res.json(allFiles);
 });
