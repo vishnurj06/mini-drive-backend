@@ -169,22 +169,41 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
 });
 
 // 🔥 DELETE API (FIXED ROUTE NAME)
+// 🔥 DELETE API (UPDATED FOR EDITORS & ADMINS)
 app.post("/delete-file", verifyToken, async (req, res) => {
     try {
         const { public_id } = req.body;
-        const file = await File.findOne({ public_id, owner: req.user.email });
+        
+        // 1. Find the file by public_id ONLY first
+        const file = await File.findOne({ public_id });
         
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        // Determine type based on URL extension
+        // 2. Check Permissions (Who is allowed to delete this?)
+        const isOwner = file.owner === req.user.email;
+        const isAdmin = req.user.email === "admin@gmail.com";
+        const isEditor = file.sharedWith.some(
+            (u) => u.email === req.user.email && u.permission === "edit"
+        );
+
+        // If they are none of those three, block the deletion
+        if (!isOwner && !isAdmin && !isEditor) {
+            return res.status(403).json({ error: "Unauthorized: You do not have permission to delete this file." });
+        }
+
+        // 3. Determine Cloudinary resource type based on URL
         const isRaw = file.url.toLowerCase().endsWith(".pdf");
 
+        // 4. Delete from Cloudinary
         await cloudinary.uploader.destroy(public_id, {
             resource_type: isRaw ? "raw" : "image" // Match the type used during upload
         });
 
+        // 5. Delete from MongoDB
         await File.deleteOne({ _id: file._id });
+        
         res.json({ success: true });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
