@@ -126,6 +126,7 @@ app.get("/pending-requests", verifyToken, async (req, res) => {
 });
 
 // 🔥 UPLOAD API (FIXED)
+// 🔥 UPLOAD API (UPDATED FOR OFFICE FILES)
 app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const file = req.file;
@@ -133,14 +134,15 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Detect file type
-    const isPDF = file.mimetype === "application/pdf";
+    // 🔥 NEW: Check if it is a document instead of just a PDF
+    // If it's not an image or video, treat it as a "raw" document file
+    const isRaw = !file.originalname.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
 
     const result = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         {
-          resource_type: isPDF ? "raw" : "auto", // 🔥 FIX
-          access_mode: "public" // 🔥 IMPORTANT FIX
+          resource_type: isRaw ? "raw" : "auto", 
+          access_mode: "public" 
         },
         (error, result) => {
           if (error) reject(error);
@@ -149,7 +151,7 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       ).end(file.buffer);
     });
 
-    // 🔥 SAVE TO DATABASE
+    // Save to Database
     await File.create({
       fileName: file.originalname,
       url: result.secure_url,
