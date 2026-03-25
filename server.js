@@ -44,6 +44,12 @@ const File = mongoose.model("File", {
       email: String,
       permission: String
     }
+  ],
+  // 🔥 ADD THIS: To track who wants access
+  accessRequests: [
+    {
+      email: String
+    }
   ]
 });
 
@@ -62,6 +68,62 @@ const verifyToken = (req, res, next) => {
     res.status(401).json({ error: "Invalid token" });
   }
 };
+
+// 1. Get a specific file via Shared Link
+app.get("/file/:id", verifyToken, async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    const isOwner = file.owner === req.user.email;
+    const isAdmin = req.user.email === "admin@gmail.com";
+    const sharedUser = file.sharedWith.find(u => u.email === req.user.email);
+
+    if (isOwner || isAdmin || sharedUser) {
+      // User has access
+      return res.json({ access: true, file, permission: sharedUser ? sharedUser.permission : 'owner' });
+    } else {
+      // User does NOT have access, check if they already requested it
+      const hasRequested = file.accessRequests.some(r => r.email === req.user.email);
+      return res.json({ access: false, hasRequested, fileName: file.fileName, fileId: file._id });
+    }
+  } catch (err) {
+    res.status(500).json({ error: "Invalid file link" });
+  }
+});
+
+// 2. User requests access to a file
+app.post("/request-access", verifyToken, async (req, res) => {
+  try {
+    const { fileId } = req.body;
+    const file = await File.findById(fileId);
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    // Prevent duplicates
+    if (!file.accessRequests.some(r => r.email === req.user.email)) {
+      file.accessRequests.push({ email: req.user.email });
+      await file.save();
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Owner checks for pending requests on their files
+app.get("/pending-requests", verifyToken, async (req, res) => {
+  try {
+    // Find files owned by the user that have at least one access request
+    const files = await File.find({
+      owner: req.user.email,
+      "accessRequests.0": { $exists: true }
+    });
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // 🔥 UPLOAD API (FIXED)
 app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
@@ -148,26 +210,33 @@ app.get("/shared-files", verifyToken, async (req, res) => {
 
 app.post("/share-file", verifyToken, async (req, res) => {
   try {
-    const { public_id, email, permission } = req.body;
+    // Note: Changed public_id to fileId to make it easier to work with MongoDB _id
+    const { fileId, email, permission } = req.body; 
     
     const userExists = await User.findOne({ email });
     if (!userExists) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const file = await File.findOne({ public_id, owner: req.user.email });
-    if (!file) return res.status(403).json({ error: "File not found or unauthorized (Only owner can share)" });
+    // Allow sharing by either public_id (old way) or _id (new way)
+    const query = mongoose.Types.ObjectId.isValid(fileId) ? { _id: fileId } : { public_id: fileId };
+    const file = await File.findOne({ ...query, owner: req.user.email });
     
+    if (!file) return res.status(403).json({ error: "File not found or unauthorized" });
+    
+    // Add or update permissions
     const alreadyShared = file.sharedWith.find(s => s.email === email);
     if (!alreadyShared) {
         file.sharedWith.push({ email, permission });
-        await file.save();
     } else {
         alreadyShared.permission = permission;
-        await file.save();
     }
+
+    // 🔥 NEW: Remove the user from the accessRequests array once approved
+    file.accessRequests = file.accessRequests.filter(r => r.email !== email);
     
-    res.json({ success: true, message: "File shared successfully" });
+    await file.save();
+    res.json({ success: true, message: "Access granted successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
