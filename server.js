@@ -94,6 +94,7 @@ app.post("/rename-folder", verifyToken, async (req, res) => {
 });
 
 // --- DELETE FOLDER (And its contents) ---
+// --- DELETE FOLDER (And its contents) ---
 app.post("/delete-folder", verifyToken, async (req, res) => {
   try {
     const { folderId } = req.body;
@@ -101,10 +102,14 @@ app.post("/delete-folder", verifyToken, async (req, res) => {
     // 1. Find all files inside this folder
     const files = await File.find({ folderId, owner: req.user.email });
     
-    // 2. Delete those files from Cloudinary
+    // 2. Delete those files from Cloudinary (UPDATED DELETION LOOP)
     for(let file of files) {
-        const isRaw = !file.url.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
-        await cloudinary.uploader.destroy(file.public_id, { resource_type: isRaw ? "raw" : "image" });
+        // Dynamically figure out if Cloudinary stored it as an image, raw, or video
+        let resourceType = "image";
+        if (file.url.includes("/raw/upload/")) resourceType = "raw";
+        if (file.url.includes("/video/upload/")) resourceType = "video";
+        
+        await cloudinary.uploader.destroy(file.public_id, { resource_type: resourceType });
     }
 
     // 3. Delete files from MongoDB
@@ -221,7 +226,7 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
     }
 
     // 1. Upload to Cloudinary
-    const isRaw = !file.originalname.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm|mp3|wav|m4a|ogg|aac)$/);
+    const isRaw = !file.originalname.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm|mp3|wav|m4a|ogg|aac|pdf)$/);
     const safeFileName = file.originalname.replace(/[^a-zA-Z0-9.]/g, "_");
 
     const result = await new Promise((resolve, reject) => {
@@ -289,41 +294,30 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
 
 // 🔥 DELETE API (FIXED ROUTE NAME)
 // 🔥 DELETE API (UPDATED FOR EDITORS & ADMINS)
+// --- DELETE FILE ---
 app.post("/delete-file", verifyToken, async (req, res) => {
     try {
         const { public_id } = req.body;
-        
-        // 1. Find the file by public_id ONLY first
         const file = await File.findOne({ public_id });
-        
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        // 2. Check Permissions (Who is allowed to delete this?)
         const isOwner = file.owner === req.user.email;
         const isAdmin = req.user.email === "admin@gmail.com";
-        const isEditor = file.sharedWith.some(
-            (u) => u.email === req.user.email && u.permission === "edit"
-        );
+        const isEditor = file.sharedWith.some(u => u.email === req.user.email && u.permission === "edit");
 
-        // If they are none of those three, block the deletion
         if (!isOwner && !isAdmin && !isEditor) {
-            return res.status(403).json({ error: "Unauthorized: You do not have permission to delete this file." });
+            return res.status(403).json({ error: "Unauthorized" });
         }
 
-        // 3. Determine Cloudinary resource type based on URL
-        // Check for pdf, pptx, docx, etc to ensure Cloudinary finds the raw file to delete it
-        const isRaw = !file.url.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
+        // 🔥 Dynamic Resource Type check based on the URL
+        let resourceType = "image";
+        if (file.url.includes("/raw/upload/")) resourceType = "raw";
+        if (file.url.includes("/video/upload/")) resourceType = "video";
 
-        // 4. Delete from Cloudinary
-        await cloudinary.uploader.destroy(public_id, {
-            resource_type: isRaw ? "raw" : "image" // Match the type used during upload
-        });
-
-        // 5. Delete from MongoDB
+        await cloudinary.uploader.destroy(public_id, { resource_type: resourceType });
         await File.deleteOne({ _id: file._id });
         
         res.json({ success: true });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
