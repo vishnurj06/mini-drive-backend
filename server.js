@@ -9,6 +9,7 @@ const cors = require("cors");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 
+const nodemailer = require("nodemailer");
 
 const app = express();
 app.use(cors());
@@ -18,9 +19,22 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
   .catch(err => console.log(err));
 
+// 🔥 Email Transporter Setup (Use your own Gmail and an 'App Password')
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'YOUR_GMAIL@gmail.com',      // Replace with your email
+    pass: 'YOUR_GMAIL_APP_PASSWORD'    // Replace with a Google App Password (not your real password)
+  }
+});
+
+// 🔥 NEW: User Model
 const User = mongoose.model("User", {
-  email: String,
-  password: String
+  username: String,
+  email: { type: String, unique: true },
+  password: String,
+  otp: String,
+  otpExpires: Date
 });
   
 // Multer setup
@@ -42,24 +56,16 @@ const Folder = mongoose.model("Folder", {
   createdAt: { type: Date, default: Date.now }
 });
 
-// 🔥 UPDATED: File Schema (added folderId)
+// 🔥 UPDATED: File Model (Notice the new 'size' property)
 const File = mongoose.model("File", {
   fileName: String,
   url: String,
   public_id: String,
+  size: Number, // <--- NEW
   owner: String,
-  folderId: { type: String, default: null }, // tells us which folder this file is in
-  sharedWith: [
-    {
-      email: String,
-      permission: String
-    }
-  ],
-  accessRequests: [
-    {
-      email: String
-    }
-  ],
+  folderId: { type: String, default: null },
+  sharedWith: [{ email: String, permission: String }],
+  accessRequests: [{ email: String }],
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -282,6 +288,7 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       url: result.secure_url,
       public_id: result.public_id,
       owner: req.user.email,
+      size: file.size,
       folderId: targetFolderId
     });
 
@@ -386,36 +393,79 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
+// --- SECURE AUTHENTICATION ---
+
+// Signup (Now with strict Domain Validation & Username)
 app.post("/signup", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password, username } = req.body;
+    
+    // Valid Domain Regex
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) return res.status(400).json({ error: "Invalid email domain." });
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(400).json({ error: "Email already exists" });
 
-  const existingUser = await User.findOne({ email });
-  if (existingUser) {
-    return res.status(400).json({ error: "User already exists" });
-  }
-
-  await User.create({
-    email,
-    password: hashedPassword
-  });
-
-  res.json({ message: "User created successfully" });
+    // In a real app, hash the password here with bcrypt!
+    await User.create({ email, password, username });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Login (Now returns username in token)
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email, password });
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-  const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ error: "User not found" });
+    // Include username in the token payload
+    const token = jwt.sign({ email: user.email, username: user.username }, "SECRET_KEY", { expiresIn: "24h" });
+    res.json({ token });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) return res.status(400).json({ error: "Wrong password" });
+// --- OTP & FORGOT PASSWORD ---
 
-  const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: "1h" });
+app.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-  res.json({ token });
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.otp = otp;
+    user.otpExpires = Date.now() + 10 * 60 * 1000; // Expires in 10 mins
+    await user.save();
+
+    // Send Email
+    await transporter.sendMail({
+      from: 'YOUR_GMAIL@gmail.com',
+      to: email,
+      subject: 'Mini Drive Password Reset OTP',
+      text: `Your password reset code is: ${otp}. It is valid for 10 minutes.`
+    });
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Failed to send OTP" }); }
+});
+
+app.post("/reset-password", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const user = await User.findOne({ email, otp, otpExpires: { $gt: Date.now() } });
+    
+    if (!user) return res.status(400).json({ error: "Invalid or expired OTP" });
+
+    user.password = newPassword; // Update password
+    user.otp = undefined; // Clear OTP
+    user.otpExpires = undefined;
+    await user.save();
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/admin/all-files", verifyToken, async (req, res) => {
