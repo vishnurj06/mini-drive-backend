@@ -23,8 +23,8 @@ mongoose.connect(process.env.MONGO_URI)
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'YOUR_GMAIL@gmail.com',      // Replace with your email
-    pass: 'YOUR_GMAIL_APP_PASSWORD'    // Replace with a Google App Password (not your real password)
+    user: 'bookofheroes1@gmail.com',      // Replace with your email
+    pass: 'wcyjxrkwnespouqc'    // Replace with a Google App Password (not your real password)
   }
 });
 
