@@ -125,12 +125,22 @@ app.post("/delete-folder", verifyToken, async (req, res) => {
   try {
     const { folderId } = req.body;
     
-    // 1. Find all files inside this folder
-    const files = await File.find({ folderId, owner: req.user.email });
+    // 1. Find the folder first so we can check who actually owns it
+    const folder = await Folder.findById(folderId);
+    if (!folder) {
+        return res.status(404).json({ error: "Folder not found" });
+    }
+
+    // 2. 🔥 THE MASTER KEY CHECK: Are you the owner OR an admin?
+    if (folder.owner !== req.user.email && req.user.role !== 'admin') {
+        return res.status(403).json({ error: "Access Denied: You do not own this folder." });
+    }
     
-    // 2. Delete those files from Cloudinary (UPDATED DELETION LOOP)
+    // 3. Find all files inside this folder (We removed the owner check here because you are already authorized!)
+    const files = await File.find({ folderId });
+    
+    // 4. Delete those files from Cloudinary 
     for(let file of files) {
-        // Dynamically figure out if Cloudinary stored it as an image, raw, or video
         let resourceType = "image";
         if (file.url.includes("/raw/upload/")) resourceType = "raw";
         if (file.url.includes("/video/upload/")) resourceType = "video";
@@ -138,15 +148,16 @@ app.post("/delete-folder", verifyToken, async (req, res) => {
         await cloudinary.uploader.destroy(file.public_id, { resource_type: resourceType });
     }
 
-    // 3. Delete files from MongoDB
-    await File.deleteMany({ folderId, owner: req.user.email });
+    // 5. Delete files from MongoDB
+    await File.deleteMany({ folderId });
     
-    // 4. Delete the folder itself (and any immediate sub-folders)
-    await Folder.deleteMany({ parentId: folderId, owner: req.user.email });
-    await Folder.deleteOne({ _id: folderId, owner: req.user.email });
+    // 6. Delete the folder itself (and any immediate sub-folders)
+    await Folder.deleteMany({ parentId: folderId });
+    await Folder.findByIdAndDelete(folderId);
 
     res.json({ success: true });
   } catch (err) {
+    console.error("Folder delete error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -323,31 +334,32 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
 // 🔥 DELETE API (UPDATED FOR EDITORS & ADMINS)
 // --- DELETE FILE ---
 app.post("/delete-file", verifyToken, async (req, res) => {
-    try {
-        const { public_id } = req.body;
-        const file = await File.findOne({ public_id });
-        if (!file) return res.status(404).json({ error: "File not found" });
+  try {
+      const { fileId } = req.body;
+      const file = await File.findById(fileId);
+      
+      if (!file) {
+          return res.status(404).json({ error: "File not found" });
+      }
 
-        const isOwner = file.owner === req.user.email;
-        const isAdmin = req.user.email === "admin@gmail.com";
-        const isEditor = file.sharedWith.some(u => u.email === req.user.email && u.permission === "edit");
+      // 🔥 THE FIX: Allow deletion if you are the owner OR if you are an admin
+      if (file.owner !== req.user.email && req.user.role !== 'admin') {
+          return res.status(403).json({ error: "Access Denied: You do not own this file." });
+      }
 
-        if (!isOwner && !isAdmin && !isEditor) {
-            return res.status(403).json({ error: "Unauthorized" });
-        }
+      // Delete from Cloudinary
+      if (file.cloudinaryId) {
+          await cloudinary.uploader.destroy(file.cloudinaryId);
+      }
 
-        // 🔥 Dynamic Resource Type check based on the URL
-        let resourceType = "image";
-        if (file.url.includes("/raw/upload/")) resourceType = "raw";
-        if (file.url.includes("/video/upload/")) resourceType = "video";
+      // Delete from MongoDB
+      await File.findByIdAndDelete(fileId);
 
-        await cloudinary.uploader.destroy(public_id, { resource_type: resourceType });
-        await File.deleteOne({ _id: file._id });
-        
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+      res.json({ success: true, message: "File deleted successfully" });
+  } catch (error) {
+      console.error("Delete error:", error);
+      res.status(500).json({ error: "Failed to delete file" });
+  }
 });
 
 app.get("/my-files", verifyToken, async (req, res) => {
