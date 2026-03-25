@@ -192,7 +192,8 @@ app.post("/delete-file", verifyToken, async (req, res) => {
         }
 
         // 3. Determine Cloudinary resource type based on URL
-        const isRaw = file.url.toLowerCase().endsWith(".pdf");
+        // Check for pdf, pptx, docx, etc to ensure Cloudinary finds the raw file to delete it
+        const isRaw = !file.url.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
 
         // 4. Delete from Cloudinary
         await cloudinary.uploader.destroy(public_id, {
