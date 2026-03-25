@@ -25,6 +25,7 @@ const User = mongoose.model("User", {
   username: String,
   email: { type: String, unique: true },
   password: String,
+  role: { type: String, default: 'user' }, // 'user' or 'admin'
   otp: String,
   otpExpires: Date
 });
@@ -76,6 +77,22 @@ const verifyToken = (req, res, next) => {
     res.status(401).json({ error: "Invalid token" });
   }
 };
+
+const verifyAdmin = (req, res, next) => {
+    // We assume verifyToken has already run and attached user to req
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: "Access Denied: Admins Only" });
+    }
+};
+
+// Example Admin Route
+app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
+    const userCount = await User.countDocuments();
+    const fileCount = await File.countDocuments();
+    res.json({ userCount, fileCount });
+});
 
 // --- RENAME FOLDER ---
 app.post("/rename-folder", verifyToken, async (req, res) => {
