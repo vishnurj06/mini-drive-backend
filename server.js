@@ -1,9 +1,5 @@
-const User = mongoose.model("User", {
-  email: String,
-  password: String
-});
+const mongoose = require("mongoose"); 
 
-const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
@@ -21,6 +17,11 @@ app.use(express.json());
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
   .catch(err => console.log(err));
+
+const User = mongoose.model("User", {
+  email: String,
+  password: String
+});
   
 // Multer setup
 const storage = multer.memoryStorage();
@@ -115,7 +116,10 @@ app.post("/delete-file", verifyToken, async (req, res) => {
     });
 
     // 🔥 DELETE FROM DATABASE
-    await File.deleteOne({ public_id });
+    await File.deleteOne({
+      public_id,
+      owner: req.user.email
+    });
 
     res.json({ success: true });
 
