@@ -421,7 +421,7 @@ app.post("/login", async (req, res) => {
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
     // Include username in the token payload
-    const token = jwt.sign({ email: user.email, username: user.username }, "SECRET_KEY", { expiresIn: "24h" });
+    const token = jwt.sign({ email: user.email, username: user.username }, process.env.JWT_SECRET, { expiresIn: "24h" });
     res.json({ token });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
