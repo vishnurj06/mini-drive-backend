@@ -127,6 +127,7 @@ app.get("/pending-requests", verifyToken, async (req, res) => {
 
 // 🔥 UPLOAD API (FIXED)
 // 🔥 UPLOAD API (UPDATED FOR OFFICE FILES)
+// 🔥 UPLOAD API (UPDATED TO FORCE FILE EXTENSIONS IN URL)
 app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const file = req.file;
@@ -134,15 +135,17 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // 🔥 NEW: Check if it is a document instead of just a PDF
-    // If it's not an image or video, treat it as a "raw" document file
+    // Check if it's a document
     const isRaw = !file.originalname.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
+
+    // 🔥 NEW: Clean the filename (remove spaces) and force Cloudinary to use it!
+    const safeFileName = file.originalname.replace(/[^a-zA-Z0-9.]/g, "_");
 
     const result = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         {
-          resource_type: isRaw ? "raw" : "auto", 
-          access_mode: "public" 
+          resource_type: isRaw ? "raw" : "auto",
+          public_id: `minidrive_${Date.now()}_${safeFileName}` // Forces the .pptx extension to stay!
         },
         (error, result) => {
           if (error) reject(error);
