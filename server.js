@@ -425,3 +425,21 @@ app.get("/admin/all-files", verifyToken, async (req, res) => {
     const allFiles = await File.find({});
     res.json(allFiles);
 });
+
+// --- REJECT ACCESS REQUEST ---
+app.post("/reject-request", verifyToken, async (req, res) => {
+  try {
+    const { fileId, email } = req.body;
+    const file = await File.findOne({ _id: fileId, owner: req.user.email });
+    
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    // Filter out the requested email
+    file.accessRequests = file.accessRequests.filter(r => r.email !== email);
+    await file.save();
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
