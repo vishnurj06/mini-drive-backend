@@ -212,6 +212,7 @@ app.get("/pending-requests", verifyToken, async (req, res) => {
 // 🔥 UPLOAD API (FIXED)
 // 🔥 UPLOAD API (UPDATED FOR OFFICE FILES)
 // 🔥 UPLOAD API (UPDATED TO FORCE FILE EXTENSIONS IN URL)
+// 🔥 UPLOAD API (UPDATED WITH RECURSIVE FOLDER CREATION)
 app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const file = req.file;
@@ -219,17 +220,15 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Check if it's a document
-    const isRaw = !file.originalname.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/);
-
-    // 🔥 NEW: Clean the filename (remove spaces) and force Cloudinary to use it!
+    // 1. Upload to Cloudinary
+    const isRaw = !file.originalname.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|mp4|webm|mp3|wav|m4a|ogg|aac)$/);
     const safeFileName = file.originalname.replace(/[^a-zA-Z0-9.]/g, "_");
 
     const result = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
         {
           resource_type: isRaw ? "raw" : "auto",
-          public_id: `minidrive_${Date.now()}_${safeFileName}` // Forces the .pptx extension to stay!
+          public_id: `minidrive_${Date.now()}_${safeFileName}`
         },
         (error, result) => {
           if (error) reject(error);
@@ -238,24 +237,50 @@ app.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
       ).end(file.buffer);
     });
 
-    // Save to Database
-    // Grab the folderId from the form data (if it exists)
-    const targetFolderId = req.body.folderId === "null" || !req.body.folderId ? null : req.body.folderId;
+    // 2. Resolve the Folder Path (The Magic Sauce)
+    let targetFolderId = req.body.folderId === "null" || !req.body.folderId ? null : req.body.folderId;
+    const relativePath = req.body.relativePath; // e.g., "Vacation/Italy/photo.jpg"
 
-    // Save to Database (UPDATED to include folderId)
+    if (relativePath && relativePath.includes('/')) {
+        const pathParts = relativePath.split('/');
+        pathParts.pop(); // Remove the file name at the end, leaving just the folder names
+        
+        let currentParentId = targetFolderId;
+        
+        // Loop through each folder name in the path
+        for (const folderName of pathParts) {
+            // Does this folder already exist at this level?
+            let existingFolder = await Folder.findOne({
+                name: folderName,
+                parentId: currentParentId,
+                owner: req.user.email
+            });
+            
+            // If not, create it!
+            if (!existingFolder) {
+                existingFolder = await Folder.create({
+                    name: folderName,
+                    owner: req.user.email,
+                    parentId: currentParentId
+                });
+            }
+            // Move down the tree for the next iteration
+            currentParentId = existingFolder._id;
+        }
+        // Set the final target folder for the file
+        targetFolderId = currentParentId;
+    }
+
+    // 3. Save to Database
     await File.create({
       fileName: file.originalname,
       url: result.secure_url,
       public_id: result.public_id,
       owner: req.user.email,
-      folderId: targetFolderId // 🔥 Save it inside the correct folder
+      folderId: targetFolderId
     });
 
-    res.json({
-      url: result.secure_url,
-      public_id: result.public_id,
-      resource_type: result.resource_type
-    });
+    res.json({ success: true, url: result.secure_url });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
