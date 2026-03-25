@@ -442,14 +442,18 @@ app.post("/forgot-password", async (req, res) => {
 
     // Send Email
     await transporter.sendMail({
-      from: 'YOUR_GMAIL@gmail.com',
+      from: 'bookofheroes1@gmail.com',
       to: email,
       subject: 'Mini Drive Password Reset OTP',
       text: `Your password reset code is: ${otp}. It is valid for 10 minutes.`
     });
 
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Failed to send OTP" }); }
+  } catch (err) { 
+    console.error("NODEMAILER ERROR:", err);
+    // This will send the exact Gmail error message directly to your screen!
+    res.status(500).json({ error: `Mail Error: ${err.message}` }); 
+  }
 });
 
 app.post("/reset-password", async (req, res) => {
