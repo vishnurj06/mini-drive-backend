@@ -110,13 +110,13 @@ app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
 // Get ALL files and ALL users (Admin Only)
 app.get("/admin/all-data", verifyToken, verifyAdmin, async (req, res) => {
     try {
-        // 🔥 FIX: Find files where the owner is NOT EQUAL ($ne) to the admin's email
         const allFiles = await File.find({ owner: { $ne: req.user.email } });
-        
-        // Optional: Do the same for users so you don't see yourself in a user list!
+        // 🔥 THE FIX: Tell the admin route to fetch folders too!
+        const allFolders = await Folder.find({ owner: { $ne: req.user.email } });
         const allUsers = await User.find({ email: { $ne: req.user.email } }, { password: 0 }); 
         
-        res.json({ files: allFiles, users: allUsers });
+        // Return both
+        res.json({ files: allFiles, folders: allFolders, users: allUsers });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
