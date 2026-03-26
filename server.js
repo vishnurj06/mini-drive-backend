@@ -102,8 +102,12 @@ app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
 // Get ALL files and ALL users (Admin Only)
 app.get("/admin/all-data", verifyToken, verifyAdmin, async (req, res) => {
     try {
-        const allFiles = await File.find({});
-        const allUsers = await User.find({}, { password: 0 }); // Hide passwords for security
+        // 🔥 FIX: Find files where the owner is NOT EQUAL ($ne) to the admin's email
+        const allFiles = await File.find({ owner: { $ne: req.user.email } });
+        
+        // Optional: Do the same for users so you don't see yourself in a user list!
+        const allUsers = await User.find({ email: { $ne: req.user.email } }, { password: 0 }); 
+        
         res.json({ files: allFiles, users: allUsers });
     } catch (err) {
         res.status(500).json({ error: err.message });
