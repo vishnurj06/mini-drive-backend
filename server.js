@@ -47,11 +47,16 @@ cloudinary.config({
 });
 
 // 🔥 NEW: Folder Schema
-const Folder = mongoose.model("Folder", {
-  name: String,
-  owner: String,
-  parentId: { type: String, default: null }, // null means it's on the main screen (root)
-  createdAt: { type: Date, default: Date.now }
+const FolderSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    owner: { type: String, required: true },
+    parentId: { type: String, default: null },
+    // 🔥 THE UPGRADE: Allow folders to remember who they are shared with
+    sharedWith: [{
+        email: String,
+        permission: { type: String, default: 'view' }
+    }],
+    createdAt: { type: Date, default: Date.now }
 });
 
 // 🔥 UPDATED: File Model (Notice the new 'size' property)
@@ -189,19 +194,39 @@ app.post("/create-folder", verifyToken, async (req, res) => {
 });
 
 // 2. Get contents of a specific folder (or root)
+// 🔥 THE UPGRADE: Smart Folder Navigation
 app.get("/my-drive", verifyToken, async (req, res) => {
-  try {
-    // If no folderId is passed, assume we are at the root (null)
-    const currentFolderId = req.query.folderId || null;
-    
-    // Fetch folders and files that belong to this specific level
-    const folders = await Folder.find({ owner: req.user.email, parentId: currentFolderId });
-    const files = await File.find({ owner: req.user.email, folderId: currentFolderId });
-    
-    res.json({ folders, files });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    try {
+        const { folderId } = req.query;
+        const email = req.user.email;
+        
+        if (!folderId) {
+            // SCENARIO 1: Root Directory - Only show stuff I own
+            const files = await File.find({ folderId: null, owner: email });
+            const folders = await Folder.find({ parentId: null, owner: email });
+            return res.json({ files, folders });
+        } else {
+            // SCENARIO 2: Inside a Folder - Check permissions!
+            const parentFolder = await Folder.findById(folderId);
+            if (!parentFolder) return res.status(404).json({ error: "Folder not found" });
+            
+            // Do I own it? Is it shared with me? Am I an admin?
+            const isOwner = parentFolder.owner === email;
+            const isShared = parentFolder.sharedWith.some(u => u.email === email);
+            const isAdmin = req.user.role === 'admin';
+            
+            if (!isOwner && !isShared && !isAdmin) {
+                return res.status(403).json({ error: "Access Denied: You do not have permission to view this folder." });
+            }
+            
+            // If they pass the security check, show them the contents!
+            const files = await File.find({ folderId: folderId });
+            const folders = await Folder.find({ parentId: folderId });
+            return res.json({ files, folders });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // 1. Get a specific file via Shared Link
@@ -384,13 +409,17 @@ app.get("/my-files", verifyToken, async (req, res) => {
   }
 });
 
-app.get("/shared-files", verifyToken, async (req, res) => {
-  try {
-    const files = await File.find({ "sharedWith.email": req.user.email });
-    res.json(files);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// 🔥 THE UPGRADE: Fetch both shared files AND shared folders
+app.get("/shared-data", verifyToken, async (req, res) => {
+    try {
+        const email = req.user.email;
+        const sharedFiles = await File.find({ "sharedWith.email": email });
+        const sharedFolders = await Folder.find({ "sharedWith.email": email });
+        
+        res.json({ files: sharedFiles, folders: sharedFolders });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.post("/share-file", verifyToken, async (req, res) => {
@@ -425,6 +454,29 @@ app.post("/share-file", verifyToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// 🔥 NEW ROUTE: Share a Folder
+app.post("/share-folder", verifyToken, async (req, res) => {
+    try {
+        const { folderId, email, permission } = req.body;
+        const folder = await Folder.findById(folderId);
+        
+        if (!folder) return res.status(404).json({ error: "Folder not found" });
+        if (folder.owner !== req.user.email) return res.status(403).json({ error: "Only the owner can share this folder" });
+
+        const alreadyShared = folder.sharedWith.find(u => u.email === email);
+        if (alreadyShared) {
+            alreadyShared.permission = permission; // Update permission if already shared
+        } else {
+            folder.sharedWith.push({ email, permission }); // Add new user
+        }
+        
+        await folder.save();
+        res.json({ success: true, message: "Folder shared successfully!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Health check
