@@ -176,8 +176,9 @@ app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
 
 app.get("/admin/all-data", verifyToken, verifyAdmin, async (req, res) => {
     try {
-        const allFiles = await File.find({ owner: { $ne: req.user.email } });
-        const allFolders = await Folder.find({ owner: { $ne: req.user.email } });
+        // 🔥 THE FIX: Add folderId: null and parentId: null so admins only see the root structure
+        const allFiles = await File.find({ owner: { $ne: req.user.email }, folderId: null });
+        const allFolders = await Folder.find({ owner: { $ne: req.user.email }, parentId: null });
         const allUsers = await User.find({ email: { $ne: req.user.email } }, { password: 0 }); 
         res.json({ files: allFiles, folders: allFolders, users: allUsers });
     } catch (err) { res.status(500).json({ error: err.message }); }
