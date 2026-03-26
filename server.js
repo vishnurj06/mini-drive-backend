@@ -51,13 +51,16 @@ const FolderSchema = new mongoose.Schema({
     name: { type: String, required: true },
     owner: { type: String, required: true },
     parentId: { type: String, default: null },
-    // 🔥 THE UPGRADE: Allow folders to remember who they are shared with
+    // Folder sharing array
     sharedWith: [{
         email: String,
         permission: { type: String, default: 'view' }
     }],
     createdAt: { type: Date, default: Date.now }
 });
+
+// 🔥 THE MISSING LINE: This is what actually creates the "Folder" variable!
+const Folder = mongoose.model('Folder', FolderSchema);
 
 // 🔥 UPDATED: File Model (Notice the new 'size' property)
 const File = mongoose.model("File", {
